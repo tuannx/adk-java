@@ -63,6 +63,25 @@ public final class ParserTest {
   }
 
   @Test
+  public void parse_textWithLoneSurrogate_replacesItInsteadOfThrowing() throws Exception {
+    Part part = Part.fromText("before \uD800 after");
+
+    JsonNode result = parseOnlyPart(parser, part);
+
+    assertInlinePart(result, "text/plain", "before \uFFFD after");
+  }
+
+  @Test
+  public void parse_multipartWithLoneSurrogate_summaryIsWellFormed() throws Exception {
+    Content content = Content.fromParts(Part.fromText("one \uDC00"), Part.fromText("two \uD83D"));
+
+    Parser.ParsedContent result = parser.parse(content, "traceId", "spanId").get();
+
+    assertEquals("one \uFFFD | two \uFFFD", result.content().get("text_summary").asText());
+    assertFalse(result.isTruncated());
+  }
+
+  @Test
   public void parse_part_withInlineData_coversProcessPart() throws Exception {
     Blob blob = Blob.builder().mimeType("image/png").data(new byte[] {1, 2, 3}).build();
     Part part = Part.builder().inlineData(blob).build();

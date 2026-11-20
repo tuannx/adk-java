@@ -41,6 +41,7 @@ final class JsonFormatter {
   static final String MAX_DEPTH_MESSAGE = "[max depth exceeded]";
   static final String REDACTED_MESSAGE = "[REDACTED]";
   static final String UNSERIALIZABLE_MESSAGE = "[UNSERIALIZABLE]";
+  static final char REPLACEMENT_CHARACTER = '\uFFFD';
   // Guard against unbounded recursion on deeply nested (non-cyclic) payloads.
   static final int MAX_TRUNCATE_DEPTH = 200;
 
@@ -200,10 +201,12 @@ final class JsonFormatter {
       boolean isTruncated = false;
       if (node.isTextual()) {
         String text = node.asText();
-        if (Utf8.encodedLength(text) > maxLength) {
-          return TruncationResult.create(mapper.valueToTree(truncate(text, maxLength)), true);
+        String safeText = replaceUnpairedSurrogates(text);
+        if (Utf8.encodedLength(safeText) > maxLength) {
+          return TruncationResult.create(mapper.valueToTree(truncate(safeText, maxLength)), true);
         }
-        return TruncationResult.create(node, false);
+        return TruncationResult.create(
+            safeText.equals(text) ? node : mapper.valueToTree(safeText), false);
       } else if (node.isObject()) {
         ObjectNode newNode = mapper.createObjectNode();
         Set<Map.Entry<String, JsonNode>> properties = node.properties();
@@ -241,6 +244,7 @@ final class JsonFormatter {
     if (s == null) {
       return TruncationResult.create(mapper.nullNode(), false);
     }
+    s = replaceUnpairedSurrogates(s);
     if (Utf8.encodedLength(s) <= maxLength) {
       return TruncationResult.create(mapper.valueToTree(s), false);
     }
@@ -255,6 +259,7 @@ final class JsonFormatter {
     if (s == null) {
       return null;
     }
+    s = replaceUnpairedSurrogates(s);
     if (Utf8.encodedLength(s) <= budget) {
       return s;
     }
@@ -290,6 +295,40 @@ final class JsonFormatter {
     }
 
     return s.substring(0, charIndex) + suffix;
+  }
+
+  /**
+   * Replaces each unpaired UTF-16 surrogate with U+FFFD.
+   *
+   * <p>Text from models, tools or users can contain a lone surrogate. Such a string is not valid
+   * UTF-8, and {@link Utf8#encodedLength} throws {@link IllegalArgumentException} on it. Valid
+   * surrogate pairs are kept. Returns the same instance when nothing needs to change.
+   */
+  static @Nullable String replaceUnpairedSurrogates(@Nullable String s) {
+    if (s == null) {
+      return null;
+    }
+    StringBuilder sb = null;
+    int length = s.length();
+    for (int i = 0; i < length; i++) {
+      char c = s.charAt(i);
+      if (Character.isHighSurrogate(c)
+          && i + 1 < length
+          && Character.isLowSurrogate(s.charAt(i + 1))) {
+        if (sb != null) {
+          sb.append(c).append(s.charAt(i + 1));
+        }
+        i++;
+      } else if (Character.isSurrogate(c)) {
+        if (sb == null) {
+          sb = new StringBuilder(length).append(s, 0, i);
+        }
+        sb.append(REPLACEMENT_CHARACTER);
+      } else if (sb != null) {
+        sb.append(c);
+      }
+    }
+    return sb == null ? s : sb.toString();
   }
 
   /** Converts a JsonNode to a standard Java object (Map, List, etc.). */

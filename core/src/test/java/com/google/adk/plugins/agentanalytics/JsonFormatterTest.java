@@ -264,6 +264,50 @@ public class JsonFormatterTest {
   }
 
   @Test
+  public void truncate_withLoneSurrogate_replacesItAndKeepsByteBudget() {
+    String withLoneSurrogate = "ab\uD800cd";
+
+    assertEquals("ab\uFFFDcd", JsonFormatter.truncate(withLoneSurrogate, 100));
+    // U+FFFD takes 3 bytes in UTF-8: "ab" (2) + U+FFFD (3) + "cd" (2) = 7 bytes.
+    assertEquals("ab\uFFFDcd", JsonFormatter.truncate(withLoneSurrogate, 7));
+  }
+
+  @Test
+  public void truncateWithStatus_withLoneSurrogate_doesNotThrow() {
+    JsonFormatter.TruncationResult result = JsonFormatter.truncateWithStatus("x\uDBFF", 100);
+
+    assertEquals("x\uFFFD", result.node().asText());
+    assertFalse(result.isTruncated());
+  }
+
+  @Test
+  public void smartTruncate_withLoneSurrogateInNestedValue_replacesIt() {
+    Map<String, Object> input = new HashMap<>();
+    input.put("msg", "bad \uDC00 value");
+    input.put("list", ImmutableList.of("ok", "\uD83D"));
+
+    JsonFormatter.TruncationResult result = JsonFormatter.smartTruncate(input, 100);
+
+    assertEquals("bad \uFFFD value", result.node().get("msg").asText());
+    assertEquals("\uFFFD", result.node().get("list").get(1).asText());
+    assertFalse(result.isTruncated());
+  }
+
+  @Test
+  public void redactTree_withLoneSurrogate_replacesIt() {
+    JsonNode result = JsonFormatter.redactTree(ImmutableMap.of("note", "x\uD800y"));
+
+    assertEquals("x\uFFFDy", result.get("note").asText());
+  }
+
+  @Test
+  public void truncate_withValidSurrogatePair_keepsIt() {
+    String emoji = "hi \uD83D\uDE00";
+
+    assertEquals(emoji, JsonFormatter.truncate(emoji, 100));
+  }
+
+  @Test
   public void smartTruncate_withCycle_detectsCycle() {
     ObjectMapper mapper = new ObjectMapper();
     ObjectNode node = mapper.createObjectNode();

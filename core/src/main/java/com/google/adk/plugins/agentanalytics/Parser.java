@@ -17,6 +17,7 @@
 package com.google.adk.plugins.agentanalytics;
 
 import static com.google.adk.plugins.agentanalytics.JsonFormatter.mapper;
+import static com.google.adk.plugins.agentanalytics.JsonFormatter.replaceUnpairedSurrogates;
 import static com.google.adk.plugins.agentanalytics.JsonFormatter.smartTruncate;
 import static com.google.adk.plugins.agentanalytics.JsonFormatter.truncate;
 import static com.google.adk.plugins.agentanalytics.JsonFormatter.truncateAndAddSuffix;
@@ -392,7 +393,7 @@ final class Parser {
     }
     // CASE C: Text
     if (part.text().isPresent()) {
-      String text = part.text().get();
+      String text = replaceUnpairedSurrogates(part.text().get());
       int textLen = Utf8.encodedLength(text);
       int offloadThreshold = Math.min(INLINE_TEXT_LIMIT, maxLength);
 
